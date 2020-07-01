@@ -34,10 +34,12 @@ class DETRsegm(nn.Module):
         self.bbox_attention = MHAttentionMap(hidden_dim, hidden_dim, nheads, dropout=0.0)
         self.mask_head = MaskHeadSmallConv(hidden_dim + nheads, [1024, 512, 256], hidden_dim)
 
-    def forward(self, samples: NestedTensor):
-        if not isinstance(samples, NestedTensor):
-            samples = nested_tensor_from_tensor_list(samples)
-        features, pos = self.detr.backbone(samples)
+    def forward(self, samples_tensors, samples_mask = None):
+        if samples_mask is None:
+            samples = nested_tensor_from_tensor_list(samples_tensors)
+            samples_tensors = samples.tensors
+            samples_mask = samples.mask
+        features, pos = self.detr.backbone(samples_tensors, samples_mask)
 
         bs = features[-1].tensors.shape[0]
 
@@ -63,7 +65,10 @@ class DETRsegm(nn.Module):
 
 
 def _expand(tensor, length: int):
-    return tensor.unsqueeze(1).repeat(1, int(length), 1, 1, 1).flatten(0, 1)
+    tensor_repeat = tensor.unsqueeze(1).repeat(1, int(length), 1, 1, 1)
+    shape = tensor_repeat.shape
+    new_shape = (shape[0] * shape[1], shape[2], shape[3], shape[4])
+    return tensor_repeat.reshape(new_shape)
 
 
 class MaskHeadSmallConv(nn.Module):
@@ -100,7 +105,10 @@ class MaskHeadSmallConv(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x: Tensor, bbox_mask: Tensor, fpns: List[Tensor]):
-        x = torch.cat([_expand(x, bbox_mask.shape[1]), bbox_mask.flatten(0, 1)], 1)
+        # [1,100,8,25,46]
+        shape = bbox_mask.shape
+        new_shape = (shape[0] * shape[1], shape[2], shape[3], shape[4])
+        x = torch.cat([_expand(x, bbox_mask.shape[1]), bbox_mask.reshape(new_shape)], 1)
 
         x = self.lay1(x)
         x = self.gn1(x)
@@ -164,7 +172,8 @@ class MHAttentionMap(nn.Module):
 
         if mask is not None:
             weights.masked_fill_(mask.unsqueeze(1).unsqueeze(1), float("-inf"))
-        weights = F.softmax(weights.flatten(2), dim=-1).view_as(weights)
+        new_shape = (weights.shape[0], weights.shape[1], weights.shape[2] * weights.shape[3] * weights.shape[4])
+        weights = F.softmax(weights.reshape(new_shape), dim=-1).view(weights.shape)
         weights = self.dropout(weights)
         return weights
 
