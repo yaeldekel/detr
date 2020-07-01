@@ -105,7 +105,6 @@ class MaskHeadSmallConv(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x: Tensor, bbox_mask: Tensor, fpns: List[Tensor]):
-        # [1,100,8,25,46]
         shape = bbox_mask.shape
         new_shape = (shape[0] * shape[1], shape[2], shape[3], shape[4])
         x = torch.cat([_expand(x, bbox_mask.shape[1]), bbox_mask.reshape(new_shape)], 1)

@@ -42,7 +42,6 @@ class DETR(nn.Module):
         self.aux_loss = aux_loss
 
     def forward(self, samples_tensors, samples_mask = None):
-    # def forward(self, src, mask, pos):
         """ The forward expects a NestedTensor, which consists of:
                - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
                - samples.mask: a binary mask of shape [batch_size x H x W], containing 1 on padded pixels
@@ -64,13 +63,9 @@ class DETR(nn.Module):
         features, pos = self.backbone(samples_tensors, samples_mask)
 
         src, mask = features[-1].decompose()
-        # out = {'src': src, 'mask': mask, 'pos': pos}
-        # return out
 
         assert mask is not None
         hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0]
-        # hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos)[0]
-        # return hs
 
         outputs_class = self.class_embed(hs)
         outputs_coord = self.bbox_embed(hs).sigmoid()
