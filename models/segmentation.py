@@ -14,6 +14,7 @@ from PIL import Image
 
 import util.box_ops as box_ops
 from util.misc import NestedTensor, interpolate, nested_tensor_from_tensor_list
+from torch.onnx import operators
 
 try:
     from panopticapi.utils import id2rgb, rgb2id
@@ -65,8 +66,18 @@ class DETRsegm(nn.Module):
 
 
 def _expand(tensor, length: int):
-    return tensor.unsqueeze(1).repeat(1, int(length), 1, 1, 1).flatten(0, 1)
+    x = tensor.unsqueeze(1).repeat(1, length, 1, 1, 1)
+    old_shape = x.shape 
+    new_shape = (old_shape[0] * old_shape[1], old_shape[2], old_shape[3], old_shape[4])
+    return x.reshape(new_shape)
 
+@torch.jit.script
+def expand_cur_fpn(cur_fpn_shape, x_shape, cur_fpn):
+    condition = (cur_fpn_shape[0] != x_shape[0])
+    if condition:
+        length = (x_shape[0] // cur_fpn_shape[0]).to(torch.int64)
+        cur_fpn = _expand(cur_fpn, length)
+    return cur_fpn
 
 class MaskHeadSmallConv(nn.Module):
     """
@@ -102,7 +113,7 @@ class MaskHeadSmallConv(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x: Tensor, bbox_mask: Tensor, fpns: List[Tensor]):
-        x = torch.cat([_expand(x, bbox_mask.shape[1]), bbox_mask.flatten(0, 1)], 1)
+        x = torch.cat([_expand(x, operators.shape_as_tensor(bbox_mask)[1]), bbox_mask.flatten(0, 1)], 1)
 
         x = self.lay1(x)
         x = self.gn1(x)
@@ -112,24 +123,28 @@ class MaskHeadSmallConv(nn.Module):
         x = F.relu(x)
 
         cur_fpn = self.adapter1(fpns[0])
-        if cur_fpn.size(0) != x.size(0):
-            cur_fpn = _expand(cur_fpn, x.size(0) // cur_fpn.size(0))
+
+        cur_fpn_shape = operators.shape_as_tensor(cur_fpn)
+        x_shape = operators.shape_as_tensor(x)
+        cur_fpn = expand_cur_fpn(cur_fpn_shape, x_shape, cur_fpn)
         x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="nearest")
         x = self.lay3(x)
         x = self.gn3(x)
         x = F.relu(x)
 
         cur_fpn = self.adapter2(fpns[1])
-        if cur_fpn.size(0) != x.size(0):
-            cur_fpn = _expand(cur_fpn, x.size(0) // cur_fpn.size(0))
+        cur_fpn_shape = operators.shape_as_tensor(cur_fpn)
+        x_shape = operators.shape_as_tensor(x)
+        cur_fpn = expand_cur_fpn(cur_fpn_shape, x_shape, cur_fpn)
         x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="nearest")
         x = self.lay4(x)
         x = self.gn4(x)
         x = F.relu(x)
 
         cur_fpn = self.adapter3(fpns[2])
-        if cur_fpn.size(0) != x.size(0):
-            cur_fpn = _expand(cur_fpn, x.size(0) // cur_fpn.size(0))
+        cur_fpn_shape = operators.shape_as_tensor(cur_fpn)
+        x_shape = operators.shape_as_tensor(x)
+        cur_fpn = expand_cur_fpn(cur_fpn_shape, x_shape, cur_fpn)
         x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="nearest")
         x = self.lay5(x)
         x = self.gn5(x)
