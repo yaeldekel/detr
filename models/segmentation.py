@@ -113,7 +113,9 @@ class MaskHeadSmallConv(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x: Tensor, bbox_mask: Tensor, fpns: List[Tensor]):
-        x = torch.cat([_expand(x, operators.shape_as_tensor(bbox_mask)[1]), bbox_mask.flatten(0, 1)], 1)
+        old_shape = bbox_mask.shape
+        new_shape = (old_shape[0]*old_shape[1], old_shape[2], old_shape[3], old_shape[4])
+        x = torch.cat([_expand(x, operators.shape_as_tensor(bbox_mask)[1]), bbox_mask.reshape(new_shape)], 1)
 
         x = self.lay1(x)
         x = self.gn1(x)
@@ -181,7 +183,9 @@ class MHAttentionMap(nn.Module):
 
         if mask is not None:
             weights.masked_fill_(mask.unsqueeze(1).unsqueeze(1), float("-inf"))
-        weights = F.softmax(weights.flatten(2), dim=-1).view_as(weights)
+        old_shape = weights.shape
+        new_shape = (old_shape[0], old_shape[1], old_shape[2]*old_shape[3]*old_shape[4])
+        weights = F.softmax(weights.reshape(new_shape), dim=-1).view_as(weights)
         weights = self.dropout(weights)
         return weights
 
