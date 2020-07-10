@@ -47,10 +47,16 @@ class Transformer(nn.Module):
     def forward(self, src, mask, query_embed, pos_embed):
         # flatten NxCxHxW to HWxNxC
         bs, c, h, w = src.shape
-        src = src.flatten(2).permute(2, 0, 1)
-        pos_embed = pos_embed.flatten(2).permute(2, 0, 1)
+        old_shape = src.shape
+        new_shape = (old_shape[0], old_shape[1], old_shape[2]*old_shape[3])
+        src = src.reshape(new_shape).permute(2, 0, 1)
+        old_shape = pos_embed.shape
+        new_shape = (old_shape[0], old_shape[1], old_shape[2]*old_shape[3])
+        pos_embed = pos_embed.reshape(new_shape).permute(2, 0, 1)
         query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)
-        mask = mask.flatten(1)
+        old_shape = mask.shape
+        new_shape = (old_shape[0], old_shape[1]*old_shape[2])
+        mask = mask.reshape(new_shape)
 
         tgt = torch.zeros_like(query_embed)
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)
